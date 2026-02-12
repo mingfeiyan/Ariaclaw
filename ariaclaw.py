@@ -248,6 +248,12 @@ class AriaClaw:
                 return
             self._session_active = False
         self.audio.stop()
+        self.aria._vad_suppressed = False
+
+        # Auto-reconnect after a brief delay
+        logger.info("Auto-reconnecting Gemini in 2 seconds...")
+        await asyncio.sleep(2)
+        await self._start_session()
 
 
 def main():

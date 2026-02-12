@@ -222,7 +222,21 @@ function updateDot(id, state) {
   }
 }
 
+let lastTranscriptRole = null;
+let lastTranscriptEl = null;
+let lastTranscriptText = '';
+
 function addTranscript(role, text) {
+  // Append to existing line if same role (streaming word-by-word)
+  if (role === lastTranscriptRole && lastTranscriptEl && (role === 'user' || role === 'model')) {
+    lastTranscriptText += text;
+    const label = role === 'user' ? 'You' : 'AI';
+    lastTranscriptEl.innerHTML = `<span class="role ${role}">${label}:</span>${escapeHtml(lastTranscriptText)}`;
+    transcriptList.scrollTop = transcriptList.scrollHeight;
+    return;
+  }
+
+  // New line for different role or tool events
   const item = document.createElement('div');
   item.className = 'transcript-item';
 
@@ -234,6 +248,16 @@ function addTranscript(role, text) {
   item.innerHTML = `<span class="role ${role}">${label}:</span>${escapeHtml(text)}`;
   transcriptList.appendChild(item);
   transcriptList.scrollTop = transcriptList.scrollHeight;
+
+  if (role === 'user' || role === 'model') {
+    lastTranscriptRole = role;
+    lastTranscriptEl = item;
+    lastTranscriptText = text;
+  } else {
+    lastTranscriptRole = null;
+    lastTranscriptEl = null;
+    lastTranscriptText = '';
+  }
 }
 
 function escapeHtml(text) {
