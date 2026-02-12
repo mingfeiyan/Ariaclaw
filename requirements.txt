@@ -1,0 +1,10 @@
+projectaria-client-sdk>=2.2.0
+projectaria-tools>=2.1.0
+fastapi>=0.115.0
+uvicorn>=0.34.0
+websockets>=13.0
+numpy>=1.26.0
+scipy>=1.14.0
+pyaudio>=0.2.14
+aiohttp>=3.10.0
+Pillow>=10.0.0
