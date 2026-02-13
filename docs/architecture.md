@@ -3,29 +3,29 @@
 ## System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          AriaClaw (Python)                              │
-│                                                                         │
-│  ┌──────────────┐    ┌──────────────────┐    ┌────────────────────┐     │
-│  │              │    │                  │    │                    │     │
-│  │  AriaStream  │───▶│  AriaClaw Core   │───▶│  GeminiLiveService │     │
-│  │              │    │  (Coordinator)   │    │                    │     │
-│  └──────────────┘    └──┬─────┬─────┬───┘    └─────────┬──────────┘     │
-│                         │     │     │                   │               │
-│              ┌──────────┘     │     └────────┐          │               │
-│              │                │              │          │               │
-│              ▼                ▼              ▼          ▼               │
-│  ┌──────────────────┐ ┌────────────┐ ┌──────────────────┐              │
-│  │                  │ │            │ │                  │              │
-│  │  OpenClawBridge  │ │ Dashboard  │ │  AudioPlayback   │              │
-│  │  (HTTP Client)   │ │ (FastAPI)  │ │  (PyAudio)       │              │
-│  │                  │ │            │ │                  │              │
-│  └──────────────────┘ └────────────┘ └──────────────────┘              │
-└─────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         AriaClaw (Python)                            │
+│                                                                      │
+│  ┌──────────────┐    ┌──────────────────┐    ┌────────────────────┐  │
+│  │              │    │                  │    │                    │  │
+│  │  AriaStream  │───▶│  AriaClaw Core   │◀──▶│  GeminiLiveService │  │
+│  │              │    │  (Coordinator)   │    │                    │  │
+│  └──────────────┘    └──┬─────┬─────┬───┘    └────────────────────┘  │
+│                         │     │     │                                │
+│              ┌──────────┘     │     └────────────┐                   │
+│              │                │                  │                   │
+│              ▼                ▼                  ▼                   │
+│  ┌──────────────────┐ ┌────────────┐ ┌──────────────────┐           │
+│  │                  │ │            │ │                  │           │
+│  │  OpenClawBridge  │ │ Dashboard  │ │  AudioPlayback   │           │
+│  │  (HTTP Client)   │ │ (FastAPI)  │ │  (PyAudio)       │           │
+│  │                  │ │            │ │                  │           │
+│  └──────────────────┘ └────────────┘ └──────────────────┘           │
+└──────────────────────────────────────────────────────────────────────┘
 
 AriaStream ──▶ Core:  video frames, audio chunks, VAD signals
-Core ──▶ Gemini:      forwards audio/video, sends tool responses
-Gemini ──▶ Core:      audio responses, transcriptions, tool calls
+Core ◀──▶ Gemini:     sends audio/video/tool responses, receives
+                      audio responses, transcriptions, tool calls
 Core ──▶ OpenClaw:    delegates tool calls (e.g. "send a message")
 Core ──▶ Dashboard:   status updates, transcriptions, tool events
 Core ──▶ AudioPlay:   Gemini's voice audio → Mac speakers
