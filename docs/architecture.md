@@ -31,52 +31,55 @@
 ## Data Flow
 
 ```
-┌───────────────┐         ┌──────────────┐         ┌──────────────────┐
-│  Aria Gen 2   │         │  AriaStream  │         │  Gemini Live API │
-│  Glasses      │         │              │         │  (WebSocket)     │
-│               │         │              │         │                  │
-│  ┌─────────┐  │  USB    │  ┌────────┐  │  JPEG   │                  │
-│  │RGB Cam  │──┼────────▶│  │Video   │──┼────────▶│                  │
-│  │1440x1440│  │         │  │Pipeline│  │ 768px   │                  │
-│  └─────────┘  │         │  └────────┘  │ 1 fps   │                  │
-│               │         │              │         │   ┌────────────┐ │
-│  ┌─────────┐  │  USB    │  ┌────────┐  │ 16kHz   │   │            │ │
-│  │8-Mic    │──┼────────▶│  │Audio   │──┼────────▶│   │  Gemini    │ │
-│  │Array    │  │         │  │Pipeline│  │ Int16   │   │  2.5 Flash │ │
-│  │16kHz/ch │  │         │  └────────┘  │ PCM     │   │  Native    │ │
-│  └─────────┘  │         │              │         │   │  Audio     │ │
-│               │         │  ┌────────┐  │ activity│   │            │ │
-│               │         │  │Manual  │──┼────────▶│   └──────┬─────┘ │
-│               │         │  │VAD     │  │ start/  │          │       │
-│               │         │  └────────┘  │ end     │          │       │
-└───────────────┘         └──────────────┘         └──────────┼───────┘
-                                                              │
-                          ┌──────────────┐                    │
-                          │              │◀───────────────────┘
-                          │  AriaClaw    │  Audio response (24kHz PCM)
-                          │  Core        │  Transcriptions (input/output)
-                          │              │  Tool calls
+                          INPUTS (continuous)
+                          ==================
+
+┌───────────────┐         ┌──────────────┐
+│  Aria Gen 2   │         │  AriaStream  │
+│  Glasses      │         │              │         ┌───────────────────────┐
+│               │         │              │         │  Gemini Live API      │
+│  ┌─────────┐  │  USB    │  ┌────────┐  │  JPEG   │  (Bidirectional WS)   │
+│  │RGB Cam  │──┼────────▶│  │Video   │──┼────────▶│                       │
+│  │1440x1440│  │         │  │Pipeline│  │ 768px   │  ┌───────────────────┐ │
+│  └─────────┘  │         │  └────────┘  │ 1 fps   │  │  Multimodal       │ │
+│               │         │              │         │  │  Context           │ │
+│  ┌─────────┐  │  USB    │  ┌────────┐  │ 16kHz   │  │                   │ │
+│  │8-Mic    │──┼────────▶│  │Audio   │──┼────────▶│  │  Accumulates:     │ │
+│  │Array    │  │         │  │Pipeline│  │ Int16   │  │  - Video frames   │ │
+│  │16kHz/ch │  │         │  └────────┘  │ PCM     │  │  - Audio stream   │ │
+│  └─────────┘  │         │              │         │  │  - System prompt  │ │
+│               │         │  ┌────────┐  │ activity│  │  - Tool results   │ │
+│               │         │  │Manual  │──┼────────▶│  │                   │ │
+│               │         │  │VAD     │  │ start/  │  │  On activityEnd,  │ │
+│               │         │  └────────┘  │ end     │  │  generates unified│ │
+└───────────────┘         └──────────────┘         │  │  response using   │ │
+                                                   │  │  ALL context      │ │
+                                                   │  └─────────┬─────────┘ │
+                          OUTPUTS (on response)    │            │           │
+                          ======================== └────────────┼───────────┘
+                                                                │
+                          ┌──────────────┐                      │
+                          │              │◀─────────────────────┘
+                          │  AriaClaw    │
+                          │  Core        │  3 output channels:
+                          │              │
                           └──┬─────┬──┬──┘
                              │     │  │
               ┌──────────────┘     │  └──────────────┐
               │                    │                  │
               ▼                    ▼                  ▼
 ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│  AudioPlayback   │  │  Dashboard       │  │  OpenClaw        │
+│  Audio Response  │  │  Transcriptions  │  │  Tool Calls      │
 │                  │  │                  │  │                  │
-│  Mac Speakers    │  │  localhost:8080  │  │  localhost:18789 │
-│  24kHz Int16     │  │                  │  │                  │
-│  PyAudio         │  │  ┌────────────┐  │  │  ┌────────────┐  │
-│                  │  │  │Live Video  │  │  │  │Send Msgs   │  │
-│                  │  │  │MJPEG Feed  │  │  │  │Web Search  │  │
-│                  │  │  ├────────────┤  │  │  │Smart Home  │  │
-│                  │  │  │Transcript  │  │  │  │Tasks/Notes │  │
-│                  │  │  │Panel       │  │  │  │Memory      │  │
-│                  │  │  ├────────────┤  │  │  └────────────┘  │
-│                  │  │  │Status Dots │  │  │                  │
-│                  │  │  │Start/Stop  │  │  │  iMessage        │
-│                  │  │  └────────────┘  │  │  Telegram        │
-│                  │  │                  │  │  WhatsApp         │
+│  24kHz PCM       │  │  Input: what     │  │  execute({task}) │
+│  → AudioPlayback │  │  user said       │  │  → OpenClawBridge│
+│  → Mac Speakers  │  │                  │  │  → OpenClaw      │
+│                  │  │  Output: what    │  │    Gateway       │
+│  Gemini's voice  │  │  AI said         │  │                  │
+│  speaking the    │  │                  │  │  Results fed back│
+│  response        │  │  → Dashboard     │  │  into Gemini's   │
+│                  │  │    transcript    │  │  context as       │
+│                  │  │    panel         │  │  toolResponse     │
 └──────────────────┘  └──────────────────┘  └──────────────────┘
 ```
 
