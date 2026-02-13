@@ -80,6 +80,42 @@
 └──────────────────┘  └──────────────────┘  └──────────────────┘
 ```
 
+## How Gemini Uses Video
+
+```
+Video frames (1 fps) are a ONE-WAY input — no separate "vision response" comes back.
+Gemini silently absorbs frames into its multimodal context.
+
+                    Continuous (1 fps)
+  Aria RGB Camera ──────────────────────▶ ┌─────────────────────────────┐
+                                          │  Gemini Multimodal Context  │
+                    Continuous (100ms)     │                             │
+  Aria Microphone ──────────────────────▶ │  Video frames accumulate    │
+                                          │  alongside audio input.     │
+                    On speech              │                             │
+  VAD Signals     ──────────────────────▶ │  When user speaks, Gemini   │
+                                          │  reasons over BOTH what it  │
+                                          │  hears AND what it sees.    │
+                                          │                             │
+                                          │  "What am I looking at?"    │
+                                          │  → uses recent frames to    │
+                                          │    describe the scene       │
+                                          │                             │
+                                          │  "Send this to my husband"  │
+                                          │  → sees the image + hears   │
+                                          │    the request → tool call  │
+                                          └──────────────┬──────────────┘
+                                                         │
+                              ┌───────────────────────────┼────────────────┐
+                              │                           │                │
+                              ▼                           ▼                ▼
+                    Audio Response (24kHz)     Transcription Text     Tool Calls
+                    → Mac Speakers            → Dashboard            → OpenClaw
+```
+
+All responses (whether informed by vision or not) come back through the same
+audio + transcription channels. There is no separate "image description" output.
+
 ## Audio Pipeline Detail
 
 ```
