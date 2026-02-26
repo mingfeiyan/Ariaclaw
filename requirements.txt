@@ -8,3 +8,8 @@ scipy>=1.14.0
 pyaudio>=0.2.14
 aiohttp>=3.10.0
 Pillow>=10.0.0
+
+# Context persistence pipeline
+pywhispercpp>=1.2.0
+imagehash>=4.3.0
+librosa>=0.10.0
