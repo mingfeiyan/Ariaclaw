@@ -17,6 +17,7 @@ class TestContextPipeline:
             output_dir=self.tmpdir,
             whisper_model="tiny",
         )
+        self.pipeline.start()
 
     def test_pipeline_creates(self):
         assert self.pipeline is not None
@@ -42,10 +43,17 @@ class TestContextPipeline:
         assert len(daily_logs) >= 1
 
     def test_start_stop(self):
-        self.pipeline.start()
         assert self.pipeline.is_running
         self.pipeline.stop()
         assert not self.pipeline.is_running
+
+    def test_stop_prevents_processing(self):
+        """After stop(), events should not be processed."""
+        self.pipeline.stop()
+        rng = np.random.RandomState(99)
+        frame = rng.randint(0, 256, (100, 100, 3), dtype=np.uint8)
+        self.pipeline.on_video_frame(frame)
+        assert self.pipeline.scene_processor.keyframe_count == 0
 
     def test_handles_ppg_data(self):
         """PPG signal should be processed for heart rate."""

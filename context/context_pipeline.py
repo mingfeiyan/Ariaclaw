@@ -61,26 +61,38 @@ class ContextPipeline:
 
     def on_video_frame(self, frame: np.ndarray):
         """Process an RGB video frame from AriaStream."""
+        if not self._running:
+            return
         self.scene_processor.process_frame(frame)
 
     def on_audio_chunk(self, pcm_bytes: bytes, is_contact_mic: bool = False):
         """Process an audio chunk from AriaStream."""
+        if not self._running:
+            return
         self.audio_processor.add_audio_chunk(pcm_bytes, is_contact_mic=is_contact_mic)
 
     def on_position_update(self, x: float, y: float, z: float):
         """Process a SLAM position update."""
+        if not self._running:
+            return
         self.spatial_processor.update_position(x, y, z)
 
     def on_orientation_update(self, pitch: float, yaw: float, roll: float):
         """Process an IMU orientation update."""
+        if not self._running:
+            return
         self.spatial_processor.update_orientation(pitch, yaw, roll)
 
     def on_heart_rate(self, bpm: int):
         """Process a PPG heart rate reading."""
+        if not self._running:
+            return
         self.spatial_processor.update_heart_rate(bpm)
 
     def on_ppg_data(self, ppg_signal: np.ndarray, sample_rate: int = 100):
         """Process raw PPG data for heart rate extraction."""
+        if not self._running:
+            return
         self.ppg_processor._sample_rate = sample_rate
         hr = self.ppg_processor.extract_heart_rate(ppg_signal)
         if hr is not None:
@@ -88,6 +100,8 @@ class ContextPipeline:
 
     def on_ocr_request(self, frame: np.ndarray):
         """Run OCR on a frame and emit text_detected event if text found."""
+        if not self._running:
+            return
         text = self.ocr_processor.detect_text(frame)
         if text and text.strip():
             event = ContextEvent(

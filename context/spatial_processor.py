@@ -1,4 +1,5 @@
 """Filters continuous spatial and biometric signals into discrete context events."""
+import collections
 import logging
 import math
 from datetime import datetime
@@ -23,7 +24,7 @@ class SpatialProcessor:
 
         self._last_position = None
         self._last_orientation = None
-        self._hr_readings = []
+        self._hr_readings = collections.deque(maxlen=100)
         self._hr_min_readings = 10
 
         self.on_event = None
@@ -57,7 +58,7 @@ class SpatialProcessor:
         self._hr_readings.append(bpm)
         if len(self._hr_readings) < self._hr_min_readings:
             return
-        readings = np.array(self._hr_readings)
+        readings = np.array(list(self._hr_readings))
         mean = np.mean(readings[:-1])
         std = np.std(readings[:-1])
         if std < 1.0:

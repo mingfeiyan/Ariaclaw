@@ -163,7 +163,11 @@ class AriaClaw:
                 self.gemini.send_audio(chunk), self._loop
             )
             if self.context:
-                self.context.on_audio_chunk(chunk)
+                # Use VAD state as proxy for speaker: if VAD detected speech,
+                # user is talking (self). Contact mic integration is pending
+                # separate Aria SDK callback registration.
+                is_self = self.aria._vad_active
+                self.context.on_audio_chunk(chunk, is_contact_mic=is_self)
         self.aria.on_audio_chunk = _on_audio_chunk
 
         # Wire Aria video → context pipeline (raw frames for scene detection)

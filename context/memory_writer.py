@@ -1,6 +1,7 @@
 """Writes structured context events as Markdown to OpenClaw-compatible daily logs."""
-import os
 import logging
+import os
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -20,19 +21,20 @@ class MemoryWriter:
     def __init__(self, output_dir: str):
         self._output_dir = output_dir
         self._memory_dir = os.path.join(output_dir, "memory")
-        self._current_date = None
+        self._lock = threading.Lock()
 
     def write_event(self, event: ContextEvent):
         os.makedirs(self._memory_dir, exist_ok=True)
         date_str = event.timestamp.strftime("%Y-%m-%d")
         time_str = event.timestamp.strftime("%H:%M")
         log_path = os.path.join(self._memory_dir, f"{date_str}.md")
-        if not os.path.exists(log_path):
-            with open(log_path, "w") as f:
-                f.write(f"# {date_str}\n\n")
         line = self._format_event(event, time_str)
-        with open(log_path, "a") as f:
-            f.write(line)
+        with self._lock:
+            if not os.path.exists(log_path):
+                with open(log_path, "w") as f:
+                    f.write(f"# {date_str}\n\n")
+            with open(log_path, "a") as f:
+                f.write(line)
         logger.debug("Context event written: %s at %s", event.event_type, time_str)
 
     def _format_event(self, event: ContextEvent, time_str: str) -> str:
