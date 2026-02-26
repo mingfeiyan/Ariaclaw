@@ -14,6 +14,7 @@ import dashboard
 from aria_stream import AriaConnectionState, AriaStream
 from audio_playback import AudioPlayback
 from gemini_service import GeminiConnectionState, GeminiLiveService
+from context.context_pipeline import ContextPipeline
 from openclaw_bridge import OpenClawBridge, OpenClawConnectionState
 
 logging.basicConfig(
@@ -32,6 +33,10 @@ class AriaClaw:
         self.gemini = GeminiLiveService()
         self.audio = AudioPlayback()
         self.openclaw = OpenClawBridge()
+        self.context = ContextPipeline(
+            output_dir=config.OPENCLAW_WORKSPACE,
+            whisper_model=config.WHISPER_MODEL,
+        ) if config.CONTEXT_ENABLED else None
         self._loop = None
         self._session_lock = asyncio.Lock()  # I1: prevent double-start race
         self._session_active = False
@@ -84,6 +89,11 @@ class AriaClaw:
         # Check OpenClaw
         await self.openclaw.check_connection()
 
+        # Start context pipeline (always-on, independent of Gemini session)
+        if self.context:
+            self.context.start()
+            logger.info("Context persistence enabled (output: %s)", config.OPENCLAW_WORKSPACE)
+
         logger.info("Ready. Open http://localhost:%d and click Start Session.", config.DASHBOARD_PORT)
 
         # Keep running until interrupted
@@ -100,6 +110,8 @@ class AriaClaw:
 
         # Graceful shutdown
         await self._stop_session()
+        if self.context:
+            self.context.stop()
         self.aria.stop()  # I8: stop Aria streaming on shutdown
         await self.openclaw.close()  # I10: close reusable HTTP session
         if self._uvicorn_server:  # I5: signal uvicorn to stop
@@ -145,10 +157,18 @@ class AriaClaw:
             self.gemini.send_video_frame(b64), self._loop
         )
 
-        # Wire Aria audio → Gemini
-        self.aria.on_audio_chunk = lambda chunk: asyncio.run_coroutine_threadsafe(
-            self.gemini.send_audio(chunk), self._loop
-        )
+        # Wire Aria audio → Gemini (and context pipeline)
+        def _on_audio_chunk(chunk):
+            asyncio.run_coroutine_threadsafe(
+                self.gemini.send_audio(chunk), self._loop
+            )
+            if self.context:
+                self.context.on_audio_chunk(chunk)
+        self.aria.on_audio_chunk = _on_audio_chunk
+
+        # Wire Aria video → context pipeline (raw frames for scene detection)
+        if self.context:
+            self.aria.on_video_frame_raw = lambda frame: self.context.on_video_frame(frame)
 
         # Wire Aria VAD → Gemini activity signals
         self.aria.on_activity_start = lambda: asyncio.run_coroutine_threadsafe(
@@ -211,6 +231,7 @@ class AriaClaw:
 
         # Disconnect callbacks
         self.aria.on_video_frame = None
+        self.aria.on_video_frame_raw = None
         self.aria.on_audio_chunk = None
         self.aria.on_activity_start = None
         self.aria.on_activity_end = None
