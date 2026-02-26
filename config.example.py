@@ -47,3 +47,35 @@ ALWAYS use execute when the user asks you to:
 
 IMPORTANT: Before calling execute, ALWAYS speak a brief acknowledgment first.
 """
+
+# Context Persistence
+CONTEXT_ENABLED = os.getenv("CONTEXT_ENABLED", "true").lower() == "true"
+CONTEXT_OUTPUT_DIR = os.getenv("CONTEXT_OUTPUT_DIR", "")  # empty = auto-detect OpenClaw workspace
+OPENCLAW_WORKSPACE = os.getenv("OPENCLAW_WORKSPACE", os.path.expanduser("~/.openclaw/workspace"))
+
+# Whisper transcription
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")  # tiny, base, small, medium
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "en")
+
+# Scene capture
+SCENE_CHANGE_THRESHOLD = int(os.getenv("SCENE_CHANGE_THRESHOLD", "10"))  # pHash hamming distance
+SCENE_IDLE_INTERVAL = float(os.getenv("SCENE_IDLE_INTERVAL", "10.0"))  # seconds between frames when stable
+SCENE_ACTIVE_INTERVAL = float(os.getenv("SCENE_ACTIVE_INTERVAL", "1.0"))  # seconds between frames on change
+SCENE_BURST_FPS = float(os.getenv("SCENE_BURST_FPS", "3.0"))  # fps during burst capture
+SCENE_BURST_DURATION = float(os.getenv("SCENE_BURST_DURATION", "5.0"))  # seconds of burst
+
+# Scene description (Gemini Flash batch)
+SCENE_DESCRIPTION_BATCH_INTERVAL = float(os.getenv("SCENE_DESCRIPTION_BATCH_INTERVAL", "300.0"))  # 5 min
+
+# PPG / Heart rate
+PPG_SAMPLE_INTERVAL = float(os.getenv("PPG_SAMPLE_INTERVAL", "30.0"))  # seconds
+PPG_ANOMALY_THRESHOLD = float(os.getenv("PPG_ANOMALY_THRESHOLD", "2.0"))  # z-score
+
+# Spatial
+LOCATION_CHANGE_METERS = float(os.getenv("LOCATION_CHANGE_METERS", "3.0"))
+GAZE_FOCUS_MIN_SECONDS = float(os.getenv("GAZE_FOCUS_MIN_SECONDS", "2.0"))
+ACTIVITY_ORIENTATION_THRESHOLD = float(os.getenv("ACTIVITY_ORIENTATION_THRESHOLD", "30.0"))  # degrees
+
+# Memory management
+MEMORY_FULL_RETENTION_DAYS = int(os.getenv("MEMORY_FULL_RETENTION_DAYS", "7"))
+MEMORY_PRUNED_RETENTION_DAYS = int(os.getenv("MEMORY_PRUNED_RETENTION_DAYS", "30"))
