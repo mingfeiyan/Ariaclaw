@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 try:
     from pywhispercpp.model import Model as WhisperModel
     WHISPER_AVAILABLE = True
-except ImportError:
+except (ImportError, TypeError):
+    # TypeError: pywhispercpp uses union type syntax (bool | TextIO) requiring Python 3.10+
     WHISPER_AVAILABLE = False
     logger.warning("pywhispercpp not available - transcription disabled")
 
