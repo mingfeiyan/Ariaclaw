@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 
 import numpy as np
@@ -19,6 +20,9 @@ class TestContextPipeline:
         )
         self.pipeline.start()
 
+    def teardown_method(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
     def test_pipeline_creates(self):
         assert self.pipeline is not None
 
@@ -27,6 +31,7 @@ class TestContextPipeline:
         rng = np.random.RandomState(42)
         frame = rng.randint(0, 256, (100, 100, 3), dtype=np.uint8)
         self.pipeline.on_video_frame(frame)
+        self.pipeline.scene_processor.flush()
         assert self.pipeline.scene_processor.keyframe_count == 1
 
     def test_handles_audio_chunk(self):

@@ -1,5 +1,6 @@
 """Tests for SceneProcessor - adaptive frame capture via perceptual hash."""
 import os
+import shutil
 import tempfile
 
 import numpy as np
@@ -20,28 +21,38 @@ class TestSceneProcessor:
         )
         self.processor.on_scene_change = lambda event: self.captured_events.append(event)
 
+    def teardown_method(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
     def test_first_frame_always_captured(self):
         frame = self._make_solid_frame(128)
         self.processor.process_frame(frame)
+        self.processor.flush()
         assert self.processor.keyframe_count == 1
 
     def test_identical_frames_not_captured(self):
         frame = self._make_solid_frame(128)
         self.processor.process_frame(frame)
+        self.processor.flush()
         self.processor.process_frame(frame)
+        self.processor.flush()
         self.processor.process_frame(frame)
+        self.processor.flush()
         assert self.processor.keyframe_count == 1
 
     def test_different_frame_captured(self):
         frame1 = self._make_solid_frame(50)
         frame2 = self._make_solid_frame(200)
         self.processor.process_frame(frame1)
+        self.processor.flush()
         self.processor.process_frame(frame2)
+        self.processor.flush()
         assert self.processor.keyframe_count == 2
 
     def test_keyframe_saved_to_disk(self):
         frame = self._make_solid_frame(128)
         self.processor.process_frame(frame)
+        self.processor.flush()
         jpgs = [f for f in os.listdir(self.tmpdir) if f.endswith(".jpg")]
         assert len(jpgs) >= 1
 
@@ -49,7 +60,9 @@ class TestSceneProcessor:
         frame1 = self._make_solid_frame(50)
         frame2 = self._make_solid_frame(200)
         self.processor.process_frame(frame1)
+        self.processor.flush()
         self.processor.process_frame(frame2)
+        self.processor.flush()
         assert len(self.captured_events) == 2  # first frame + change
 
     def _make_solid_frame(self, value: int) -> np.ndarray:

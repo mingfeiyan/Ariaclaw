@@ -15,6 +15,14 @@ class PPGProcessor:
     def __init__(self, sample_rate: int = 100):
         self._sample_rate = sample_rate
 
+    @property
+    def sample_rate(self) -> int:
+        return self._sample_rate
+
+    @sample_rate.setter
+    def sample_rate(self, value: int):
+        self._sample_rate = value
+
     def extract_heart_rate(self, ppg_signal: np.ndarray) -> int | None:
         """Extract heart rate (bpm) from raw PPG signal. Returns int bpm or None."""
         if len(ppg_signal) < self._sample_rate * 3:

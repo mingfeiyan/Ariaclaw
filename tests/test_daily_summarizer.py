@@ -1,5 +1,6 @@
 """Tests for DailySummarizer - compresses daily logs into MEMORY.md summaries."""
 import os
+import shutil
 import tempfile
 
 import pytest
@@ -12,6 +13,9 @@ class TestDailySummarizer:
         self.tmpdir = tempfile.mkdtemp()
         self.memory_dir = os.path.join(self.tmpdir, "memory")
         os.makedirs(self.memory_dir)
+
+    def teardown_method(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_reads_daily_log(self):
         log_path = os.path.join(self.memory_dir, "2026-02-25.md")

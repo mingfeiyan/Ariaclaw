@@ -27,6 +27,8 @@ class ContextPipeline:
     ):
         self._output_dir = output_dir
         self._running = False
+        self.on_dashboard_event = None  # callback: (event_type, content, timestamp) -> None
+        self.on_heart_rate_update = None  # callback: (bpm: int) -> None
 
         # Set up keyframe directory
         today = datetime.now().strftime("%Y-%m-%d")
@@ -57,6 +59,8 @@ class ContextPipeline:
 
     def stop(self):
         self._running = False
+        self.scene_processor.stop()
+        self.audio_processor.stop()
         logger.info("Context pipeline stopped")
 
     def on_video_frame(self, frame: np.ndarray):
@@ -87,15 +91,25 @@ class ContextPipeline:
         """Process a PPG heart rate reading."""
         if not self._running:
             return
+        if self.on_heart_rate_update:
+            self.on_heart_rate_update(bpm)
         self.spatial_processor.update_heart_rate(bpm)
 
-    def on_ppg_data(self, ppg_signal: np.ndarray, sample_rate: int = 100):
+    def on_gps_data(self, lat: float, lon: float, alt: float, accuracy: float):
+        """Process a GPS coordinate update from AriaStream."""
+        if not self._running:
+            return
+        self.spatial_processor.update_gps_position(lat, lon, alt, accuracy)
+
+    def on_ppg_data(self, ppg_signal: np.ndarray, sample_rate: int = 128):
         """Process raw PPG data for heart rate extraction."""
         if not self._running:
             return
-        self.ppg_processor._sample_rate = sample_rate
+        self.ppg_processor.sample_rate = sample_rate
         hr = self.ppg_processor.extract_heart_rate(ppg_signal)
         if hr is not None:
+            if self.on_heart_rate_update:
+                self.on_heart_rate_update(hr)
             self.spatial_processor.update_heart_rate(hr)
 
     def on_ocr_request(self, frame: np.ndarray):
@@ -112,6 +126,12 @@ class ContextPipeline:
             self._on_context_event(event)
 
     def _on_context_event(self, event: ContextEvent):
-        """Write any context event to the daily log."""
+        """Write any context event to the daily log and notify dashboard."""
         self.memory_writer.write_event(event)
         logger.info("Context event: %s", event.event_type)
+        if self.on_dashboard_event:
+            self.on_dashboard_event(
+                event.event_type,
+                event.content,
+                event.timestamp.isoformat(),
+            )

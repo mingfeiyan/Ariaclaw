@@ -2,6 +2,7 @@
 import glob
 import logging
 import os
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,7 @@ class DailySummarizer:
         self._workspace_dir = workspace_dir
         self._memory_dir = os.path.join(workspace_dir, "memory")
         self._memory_md_path = os.path.join(workspace_dir, "MEMORY.md")
+        self._write_lock = threading.Lock()
 
     def list_daily_logs(self) -> list[str]:
         pattern = os.path.join(self._memory_dir, "????-??-??.md")
@@ -28,10 +30,11 @@ class DailySummarizer:
 
     def _append_to_memory_md(self, date_str: str, summary: str):
         header = f"\n## {date_str}\n\n"
-        with open(self._memory_md_path, "a") as f:
-            f.write(header)
-            f.write(summary)
-            f.write("\n")
+        with self._write_lock:
+            with open(self._memory_md_path, "a") as f:
+                f.write(header)
+                f.write(summary)
+                f.write("\n")
         logger.info("Appended summary for %s to MEMORY.md", date_str)
 
     async def summarize_day(self, date_str: str, summarize_fn=None):

@@ -23,6 +23,7 @@ class AudioPlayback:
         self._queue = queue.Queue()
         self._thread = None
         self._running = False
+        self._flush_requested = threading.Event()
 
     def start(self):
         self._pa = pyaudio.PyAudio()
@@ -54,13 +55,9 @@ class AudioPlayback:
                 self._queue.get_nowait()
             except queue.Empty:
                 break
-        # Stop and restart the stream to flush pyaudio's internal buffer
-        if self._stream:
-            try:
-                self._stream.stop_stream()
-                self._stream.start_stream()
-            except Exception as e:
-                logger.error("Audio interrupt error: %s", e)
+        # Signal the playback thread to flush pyaudio's internal buffer
+        # (stream stop/start must happen on the same thread as write)
+        self._flush_requested.set()
         self.is_speaking = False
 
     def stop(self):
@@ -84,6 +81,17 @@ class AudioPlayback:
     def _playback_loop(self):
         """Dedicated thread that drains the queue and writes to pyaudio."""
         while self._running:
+            # Check if a flush was requested (stop_playback called from another thread)
+            if self._flush_requested.is_set():
+                self._flush_requested.clear()
+                if self._stream:
+                    try:
+                        self._stream.stop_stream()
+                        self._stream.start_stream()
+                    except Exception as e:
+                        logger.error("Audio flush error: %s", e)
+                continue
+
             try:
                 data = self._queue.get(timeout=0.1)
             except queue.Empty:

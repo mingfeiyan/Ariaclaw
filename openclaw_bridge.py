@@ -49,11 +49,12 @@ class OpenClawBridge:
         self._conversation_history = []
         logger.info("OpenClaw new session: %s", self._session_key)
 
-    async def _get_session(self, timeout_total: int = 120) -> aiohttp.ClientSession:
+    _SESSION_TIMEOUT = aiohttp.ClientTimeout(total=120)
+
+    async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create a reusable HTTP session."""
         if self._http_session is None or self._http_session.closed:
-            timeout = aiohttp.ClientTimeout(total=timeout_total)
-            self._http_session = aiohttp.ClientSession(timeout=timeout)
+            self._http_session = aiohttp.ClientSession(timeout=self._SESSION_TIMEOUT)
         return self._http_session
 
     async def close(self):

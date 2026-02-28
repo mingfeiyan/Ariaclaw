@@ -2,6 +2,8 @@
 import io
 import logging
 import os
+import queue
+import threading
 import time
 from datetime import datetime
 
@@ -31,6 +33,11 @@ class SceneProcessor:
         self._last_capture_time = 0.0
         self._keyframe_count = 0
 
+        # Worker thread for pHash + disk I/O (avoids blocking SDK callback thread)
+        self._work_queue = queue.Queue(maxsize=2)
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker.start()
+
         # Callback
         self.on_scene_change = None
 
@@ -38,7 +45,40 @@ class SceneProcessor:
     def keyframe_count(self) -> int:
         return self._keyframe_count
 
+    _SENTINEL = None  # signals worker thread to exit
+
     def process_frame(self, frame: np.ndarray):
+        """Enqueue an RGB frame for processing on the worker thread."""
+        try:
+            self._work_queue.put_nowait(frame)
+        except queue.Full:
+            pass  # drop frame to avoid backpressure on SDK thread
+
+    def flush(self):
+        """Block until all queued frames have been processed."""
+        self._work_queue.join()
+
+    def stop(self):
+        """Flush pending work and stop the worker thread."""
+        self._work_queue.join()
+        self._work_queue.put(self._SENTINEL)
+        self._worker.join(timeout=2)
+
+    def _worker_loop(self):
+        """Background thread that runs pHash comparison and keyframe capture."""
+        while True:
+            frame = self._work_queue.get()
+            if frame is self._SENTINEL:
+                self._work_queue.task_done()
+                break
+            try:
+                self._process_frame(frame)
+            except Exception as e:
+                logger.error("Scene processing error: %s", e)
+            finally:
+                self._work_queue.task_done()
+
+    def _process_frame(self, frame: np.ndarray):
         """Process an RGB frame. Captures keyframe if scene changed or enough time elapsed."""
         now = time.time()
 
@@ -53,15 +93,15 @@ class SceneProcessor:
         distance = self._last_hash - current_hash
 
         if distance > self._threshold:
-            self._capture_keyframe(frame, img, now)
+            self._capture_keyframe(frame, img, now, distance=distance)
             self._last_hash = current_hash
             return
 
         if now - self._last_capture_time >= self._idle_interval:
-            self._capture_keyframe(frame, img, now)
+            self._capture_keyframe(frame, img, now, distance=distance)
             self._last_hash = current_hash
 
-    def _capture_keyframe(self, frame: np.ndarray, img: Image.Image, now: float):
+    def _capture_keyframe(self, frame: np.ndarray, img: Image.Image, now: float, distance: int = 0):
         self._last_capture_time = now
         self._keyframe_count += 1
 
@@ -79,12 +119,14 @@ class SceneProcessor:
 
         if self.on_scene_change:
             from context.memory_writer import ContextEvent
+            desc = f"Scene changed (distance: {distance})" if distance > 0 else "Initial capture"
             event = ContextEvent(
                 timestamp=datetime.now(),
                 event_type="scene_change",
                 content={
                     "keyframe_path": filepath,
-                    "description": "",
+                    "keyframe": filename,
+                    "description": desc,
                 },
             )
             self.on_scene_change(event)

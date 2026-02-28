@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 import io
 import logging
@@ -44,6 +46,8 @@ class AriaStream:
         self.on_video_frame = None  # (jpeg_base64: str) -> None
         self.on_video_frame_raw = None  # (numpy_array) -> None  (for dashboard preview)
         self.on_audio_chunk = None  # (pcm_bytes: bytes) -> None
+        self.on_ppg_data = None  # (ppg_signal: np.ndarray, sample_rate: int) -> None
+        self.on_gps_data = None  # (lat, lon, alt, accuracy) -> None
         self.on_activity_start = None  # () -> None  (speech detected)
         self.on_activity_end = None  # () -> None  (silence detected)
         self.on_state_changed = None  # (AriaConnectionState) -> None
@@ -69,9 +73,21 @@ class AriaStream:
         self._vad_warmup = 20  # ignore first N audio callbacks (mic init transient)
         self._vad_suppressed = False  # suppress VAD while AI is speaking
 
+        # GPS throttling
+        self._last_gps_time = 0.0
+        self._gps_throttle_interval = config.GPS_THROTTLE_INTERVAL
+
+        # PPG buffer
+        self._ppg_lock = threading.Lock()
+        self._ppg_buffer = []
+        self._ppg_sample_rate = 128
+
         # Latest JPEG frame for MJPEG streaming
         self._latest_jpeg = None
         self._jpeg_lock = threading.Lock()
+
+        # Debug counters
+        self._audio_log_count = 0
 
     def _set_state(self, state):
         self.connection_state = state
@@ -120,7 +136,7 @@ class AriaStream:
             )
 
             server_config = sdk_gen2.HttpServerConfig()
-            server_config.address = "0.0.0.0"
+            server_config.address = config.ARIA_STREAMING_HOST
             server_config.port = config.ARIA_STREAMING_PORT
             self._stream_receiver.set_server_config(server_config)
 
@@ -131,6 +147,8 @@ class AriaStream:
             # Register callbacks
             self._stream_receiver.register_rgb_callback(self._on_rgb_frame)
             self._stream_receiver.register_audio_callback(self._on_audio_data)
+            self._stream_receiver.register_ppg_callback(self._on_ppg_data)
+            self._stream_receiver.register_gps_callback(self._on_gps_data_raw)
 
             # Start
             self._device.start_streaming()
@@ -191,8 +209,6 @@ class AriaStream:
             logger.info("Sending video frame to Gemini: %d bytes JPEG", len(gemini_jpeg))
             self.on_video_frame(b64)
 
-    _audio_log_count = 0
-
     def _on_audio_data(self, audio_data, audio_record, num_channels: int):
         """Called by Aria SDK for each audio chunk from the 8-mic array."""
         self._audio_log_count += 1
@@ -244,7 +260,6 @@ class AriaStream:
         if self._vad_suppressed:
             self._vad_speech_start_count = 0
             self._vad_silence_count = 0
-            pass
         elif self._audio_log_count <= self._vad_warmup:
             pass
         elif not self._vad_active:
@@ -281,6 +296,48 @@ class AriaStream:
                                 len(chunk), self.on_audio_chunk is not None)
                 if self.on_audio_chunk:
                     self.on_audio_chunk(chunk)
+
+
+    def _on_ppg_data(self, ppg_data):
+        """Called by Aria SDK for each PPG sensor reading."""
+        try:
+            value = ppg_data.value
+        except Exception as e:
+            logger.error("PPG data conversion failed: %s", e)
+            return
+
+        with self._ppg_lock:
+            self._ppg_buffer.append(value)
+            if len(self._ppg_buffer) >= self._ppg_sample_rate * 3:
+                signal = np.array(self._ppg_buffer, dtype=np.float64)
+                self._ppg_buffer = []
+            else:
+                return
+
+        # Flush when we have ~3 seconds of data (minimum window for HR extraction)
+        if self.on_ppg_data:
+            self.on_ppg_data(signal, self._ppg_sample_rate)
+
+    def _on_gps_data_raw(self, gps_data):
+        """Called by Aria SDK for each GPS/GNSS update. Throttled to one per 30s."""
+        now = time.time()
+        if now - self._last_gps_time < self._gps_throttle_interval:
+            return
+        self._last_gps_time = now
+
+        try:
+            lat = gps_data.latitude
+            lon = gps_data.longitude
+            alt = gps_data.altitude
+            accuracy = gps_data.accuracy
+        except AttributeError as e:
+            logger.error("GPS data missing attribute: %s", e)
+            return
+
+        logger.info("GPS update: lat=%.6f lon=%.6f alt=%.1f acc=%.1f",
+                     lat, lon, alt, accuracy)
+        if self.on_gps_data:
+            self.on_gps_data(lat, lon, alt, accuracy)
 
 
 def _numpy_to_jpeg(img_array: np.ndarray, quality: int = 50, max_dim: int = 0) -> bytes | None:

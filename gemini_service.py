@@ -44,6 +44,10 @@ class GeminiLiveService:
         self._last_user_speech_end = None
         self._response_latency_logged = False
 
+        # Debug counters
+        self._audio_send_count = 0
+        self._recv_count = 0
+
     def _set_state(self, state):
         self.connection_state = state
         if self.on_state_changed:
@@ -75,16 +79,21 @@ class GeminiLiveService:
             return False
 
     async def disconnect(self):
+        # Clear on_disconnected before cancelling to prevent the finally block
+        # in _receive_loop from triggering auto-reconnect on intentional disconnect
+        self.on_disconnected = None
         if self._receive_task:
             self._receive_task.cancel()
+            try:
+                await self._receive_task
+            except asyncio.CancelledError:
+                pass
             self._receive_task = None
         if self._ws:
             await self._ws.close()
             self._ws = None
         self.is_model_speaking = False
         self._set_state(GeminiConnectionState.DISCONNECTED)
-
-    _audio_send_count = 0
 
     async def send_audio(self, pcm_data: bytes):
         if self.connection_state != GeminiConnectionState.READY:
@@ -162,9 +171,10 @@ class GeminiLiveService:
         try:
             await self._ws.send(json.dumps(obj))
         except Exception as e:
-            logger.error("Gemini send error: %s", e)
-
-    _recv_count = 0
+            # Sanitize error message to avoid leaking API key from WebSocket URL
+            import re
+            msg = re.sub(r'key=[^&\s\'"]+', 'key=***', str(e))
+            logger.error("Gemini send error: %s: %s", type(e).__name__, msg)
 
     async def _receive_loop(self):
         try:

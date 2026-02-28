@@ -1,5 +1,6 @@
 """Tests for MemoryWriter - writes context events as Markdown to OpenClaw daily logs."""
 import os
+import shutil
 import tempfile
 from datetime import datetime
 
@@ -12,6 +13,9 @@ class TestMemoryWriter:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
         self.writer = MemoryWriter(output_dir=self.tmpdir)
+
+    def teardown_method(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_write_speech_self_event(self):
         event = ContextEvent(

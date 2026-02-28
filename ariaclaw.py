@@ -41,20 +41,16 @@ class AriaClaw:
         self._session_lock = asyncio.Lock()  # I1: prevent double-start race
         self._session_active = False
         self._uvicorn_server = None
+        self._reconnect_delay = 2.0  # exponential backoff for Gemini reconnect
+        self._max_reconnect_delay = 60.0
 
     async def run(self):
         self._loop = asyncio.get_running_loop()  # M1: use get_running_loop
 
-        # Wire up state change callbacks
-        self.aria.on_state_changed = lambda s: asyncio.run_coroutine_threadsafe(
-            dashboard.update_status("aria", s.value), self._loop
-        )
-        self.gemini.on_state_changed = lambda s: asyncio.run_coroutine_threadsafe(
-            dashboard.update_status("gemini", s.value), self._loop
-        )
-        self.openclaw.on_state_changed = lambda s: asyncio.run_coroutine_threadsafe(
-            dashboard.update_status("openclaw", s.value), self._loop
-        )
+        # Wire up state change callbacks (dashboard functions are thread-safe, no coroutine needed)
+        self.aria.on_state_changed = lambda s: dashboard.update_status("aria", s.value)
+        self.gemini.on_state_changed = lambda s: dashboard.update_status("gemini", s.value)
+        self.openclaw.on_state_changed = lambda s: dashboard.update_status("openclaw", s.value)
 
         # I6: pass the main event loop to dashboard
         dashboard.configure(
@@ -91,6 +87,12 @@ class AriaClaw:
 
         # Start context pipeline (always-on, independent of Gemini session)
         if self.context:
+            self.context.on_dashboard_event = (
+                lambda et, content, ts: dashboard.send_context_event(et, content, ts)
+            )
+            self.context.on_heart_rate_update = (
+                lambda bpm: dashboard.send_heart_rate(bpm)
+            )
             self.context.start()
             logger.info("Context persistence enabled (output: %s)", config.OPENCLAW_WORKSPACE)
 
@@ -174,6 +176,14 @@ class AriaClaw:
         if self.context:
             self.aria.on_video_frame_raw = lambda frame: self.context.on_video_frame(frame)
 
+        # Wire Aria PPG → context pipeline (heart rate extraction)
+        if self.context:
+            self.aria.on_ppg_data = lambda signal, rate: self.context.on_ppg_data(signal, rate)
+
+        # Wire Aria GPS → context pipeline (location tracking)
+        if self.context:
+            self.aria.on_gps_data = lambda lat, lon, alt, acc: self.context.on_gps_data(lat, lon, alt, acc)
+
         # Wire Aria VAD → Gemini activity signals
         self.aria.on_activity_start = lambda: asyncio.run_coroutine_threadsafe(
             self.gemini.send_activity_start(), self._loop
@@ -190,14 +200,10 @@ class AriaClaw:
 
         # Wire Gemini transcriptions → dashboard
         self.gemini.on_input_transcription = (
-            lambda text: asyncio.run_coroutine_threadsafe(
-                dashboard.send_transcript("user", text), self._loop
-            )
+            lambda text: dashboard.send_transcript("user", text)
         )
         self.gemini.on_output_transcription = (
-            lambda text: asyncio.run_coroutine_threadsafe(
-                dashboard.send_transcript("model", text), self._loop
-            )
+            lambda text: dashboard.send_transcript("model", text)
         )
 
         # Wire Gemini turn complete → mark audio done + unsuppress VAD
@@ -222,6 +228,7 @@ class AriaClaw:
             self._on_gemini_disconnected(reason), self._loop
         )
 
+        self._reconnect_delay = 2.0  # reset backoff on successful connect
         logger.info("Session started")
 
     async def _stop_session(self):
@@ -237,6 +244,8 @@ class AriaClaw:
         self.aria.on_video_frame = None
         self.aria.on_video_frame_raw = None
         self.aria.on_audio_chunk = None
+        self.aria.on_ppg_data = None
+        self.aria.on_gps_data = None
         self.aria.on_activity_start = None
         self.aria.on_activity_end = None
 
@@ -258,11 +267,11 @@ class AriaClaw:
             task_desc = args.get("task", str(args))
 
             logger.info("Tool call: %s (id: %s) - %s", name, call_id, task_desc[:100])
-            await dashboard.send_tool_event("tool_call", task_desc)
+            dashboard.send_tool_event("tool_call", task_desc)
 
             result = await self.openclaw.delegate_task(task_desc, name)
             result_text = result.get("result", result.get("error", "Unknown"))
-            await dashboard.send_tool_event("tool_result", result_text[:200])
+            dashboard.send_tool_event("tool_result", result_text[:200])
 
             await self.gemini.send_tool_response(call_id, name, result)
 
@@ -275,9 +284,11 @@ class AriaClaw:
         self.audio.stop()
         self.aria._vad_suppressed = False
 
-        # Auto-reconnect after a brief delay
-        logger.info("Auto-reconnecting Gemini in 2 seconds...")
-        await asyncio.sleep(2)
+        # Auto-reconnect with exponential backoff
+        delay = self._reconnect_delay
+        self._reconnect_delay = min(self._reconnect_delay * 2, self._max_reconnect_delay)
+        logger.info("Auto-reconnecting Gemini in %.0f seconds...", delay)
+        await asyncio.sleep(delay)
         await self._start_session()
 
 

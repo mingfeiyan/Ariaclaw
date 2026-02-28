@@ -1,5 +1,6 @@
 """Audio processing: buffering, Whisper transcription, speaker labeling, prosody."""
 import logging
+import queue
 import threading
 import time
 from datetime import datetime
@@ -43,6 +44,11 @@ class AudioProcessor:
             except Exception as e:
                 logger.error("Failed to load Whisper model: %s", e)
 
+        # Worker thread for transcription (avoids blocking SDK callback thread)
+        self._work_queue = queue.Queue(maxsize=4)
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker.start()
+
         self.on_transcription = None
 
     @property
@@ -50,8 +56,10 @@ class AudioProcessor:
         with self._buffer_lock:
             return len(self._buffer) / (self._sample_rate * 2)
 
+    _SENTINEL = None  # signals worker thread to exit
+
     def add_audio_chunk(self, pcm_bytes: bytes, is_contact_mic: bool = False):
-        """Add Int16 PCM audio. Triggers transcription when buffer is full."""
+        """Add Int16 PCM audio. Enqueues transcription when buffer is full."""
         with self._buffer_lock:
             self._buffer.extend(pcm_bytes)
             if is_contact_mic:
@@ -65,7 +73,28 @@ class AudioProcessor:
             else:
                 return
 
-        self._process_buffer(audio_data, contact)
+        # Enqueue for worker thread; drop if queue is full to avoid backpressure
+        try:
+            self._work_queue.put_nowait((audio_data, contact))
+        except queue.Full:
+            logger.warning("Transcription queue full, dropping audio buffer")
+
+    def stop(self):
+        """Flush pending work and stop the worker thread."""
+        self._work_queue.put(self._SENTINEL)
+        self._worker.join(timeout=5)
+
+    def _worker_loop(self):
+        """Background thread that processes audio buffers for transcription."""
+        while True:
+            item = self._work_queue.get()
+            if item is self._SENTINEL:
+                break
+            audio_data, contact = item
+            try:
+                self._process_buffer(audio_data, contact)
+            except Exception as e:
+                logger.error("Audio processing error: %s", e)
 
     def _process_buffer(self, pcm_bytes: bytes, is_contact_mic: bool):
         """Transcribe buffered audio and emit event."""

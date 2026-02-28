@@ -41,7 +41,10 @@ class OCRProcessor:
             request = VNRecognizeTextRequest.alloc().init()
             request.setRecognitionLevel_(1)  # accurate
 
-            handler.performRequests_error_([request], None)
+            success, error = handler.performRequests_error_([request], None)
+            if not success:
+                logger.debug("Vision OCR request failed: %s", error)
+                return ""
 
             results = request.results()
             if not results:
